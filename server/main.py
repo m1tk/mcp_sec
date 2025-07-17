@@ -15,6 +15,10 @@ from auth import KeycloakOAuthProvider
 
 load_dotenv()
 
+AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "false") == "true"
+RATE_LIMITING_ENABLED = os.environ.get("RATE_LIMITING_ENABLED", "false") == "true"
+
+
 if os.environ.get("OTEL_ENABLED", "false").lower() == "true":
     from otel import setup_telemetry
     setup_telemetry()
@@ -31,11 +35,11 @@ mcp = FastMCP(
     auth_server_provider=KeycloakOAuthProvider(
         server_url=os.environ.get("KEYCLOAK_SERVER_URL"),
         realm_name=os.environ.get("KEYCLOAK_REALM")
-    ),
+    ) if AUTH_ENABLED else None,
     auth=AuthSettings(
         issuer_url=os.environ.get("KEYCLOAK_SERVER_URL"),
         resource_server_url=os.environ.get("KEYCLOAK_SERVER_URL")
-    )
+    ) if AUTH_ENABLED else None
 )
 
 conn = sqlite3.connect("./server.db")
@@ -61,7 +65,7 @@ async def remove_element(name: str) -> bool:
     """
     Remove an element
     """
-    if not 'admin' in get_access_token().scopes:
+    if AUTH_ENABLED and not 'admin' in get_access_token().scopes:
         raise HTTPException(status_code=403, detail="Admin role required")
     cursor.execute("DELETE FROM elements WHERE name = ?", (name,))
     logger.info(f"Remove element: {name}")
@@ -74,7 +78,7 @@ async def store_value(name: str, value: int) -> bool:
     """
     Insert new element
     """
-    if not 'admin' in get_access_token().scopes:
+    if AUTH_ENABLED and not 'admin' in get_access_token().scopes:
         raise HTTPException(status_code=403, detail="Admin role required")
     logger.info(f"Store element: {name} with value {value}")
     cursor.execute("INSERT INTO elements (name, value) VALUES (?, ?)", (name, value))
@@ -90,12 +94,19 @@ async def check_connectivity(ip: str) -> bool:
 
 if __name__ == "__main__":
     app = mcp.streamable_http_app()
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-        # Rate limitting can be configured with reverse proxy instead as well
-        limit_concurrency=100,  # Maximum number of concurrent connections
-        limit_max_requests=1000,  # Maximum number of requests per connection
-        timeout_keep_alive=120,  # Keep-alive timeout in seconds
-    )
+    if RATE_LIMITING_ENABLED:
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=8000,
+            # Rate limitting can be configured with reverse proxy instead as well
+            limit_concurrency=100,  # Maximum number of concurrent connections
+            limit_max_requests=1000,  # Maximum number of requests per connection
+            timeout_keep_alive=120,  # Keep-alive timeout in seconds
+        )
+    else:
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=8000
+        )
