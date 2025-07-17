@@ -15,16 +15,20 @@ load_dotenv()
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 
+keycloak_openid = KeycloakOpenID(
+    server_url=os.environ.get("KEYCLOAK_SERVER_URL"),
+    client_id=os.environ.get("KEYCLOAK_CLIENT_ID"),
+    realm_name=os.environ.get("KEYCLOAK_REALM"),
+    client_secret_key=os.environ.get("KEYCLOAK_CLIENT_SECRET"),
+)
+access_token = None
+
 def jwt_factory(headers=None, timeout=None, auth=None):
-    keycloak_openid = KeycloakOpenID(
-        server_url=os.environ.get("KEYCLOAK_SERVER_URL"),
-        client_id=os.environ.get("KEYCLOAK_CLIENT_ID"),
-        realm_name=os.environ.get("KEYCLOAK_REALM"),
-        client_secret_key=os.environ.get("KEYCLOAK_CLIENT_SECRET"),
-    )
-    token = keycloak_openid.refresh_token(REFRESH_TOKEN)
+    global access_token
+    if not access_token or not keycloak_openid.introspect(access_token["access_token"])['active']:
+        access_token = keycloak_openid.refresh_token(REFRESH_TOKEN)
     return httpx.AsyncClient(
-        headers={"Authorization": f"Bearer {token['access_token']}"},
+        headers={"Authorization": f"Bearer {access_token['access_token']}"},
     )
 
 async def run_agent():
